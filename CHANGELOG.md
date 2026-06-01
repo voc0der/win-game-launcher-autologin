@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.1] - 2026-06-01
+
+- Fixed credential saving when the credentials dialog clears the password textbox during cleanup.
+
 ## [0.1.0] - 2026-06-01
 
 - Initial tray app with passive WinEvent hooks for Ubisoft Connect windows.
