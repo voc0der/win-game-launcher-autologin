@@ -4,6 +4,8 @@ internal sealed class CredentialsDialog : Form
 {
     private readonly TextBox _usernameTextBox = new();
     private readonly TextBox _passwordTextBox = new();
+    private string _acceptedUsername = string.Empty;
+    private string _acceptedPassword = string.Empty;
 
     public CredentialsDialog(string? existingUsername)
     {
@@ -72,9 +74,20 @@ internal sealed class CredentialsDialog : Form
         });
     }
 
-    public string Username => _usernameTextBox.Text.Trim();
+    public string Username => _acceptedUsername;
 
-    public string Password => _passwordTextBox.Text;
+    public string Password => _acceptedPassword;
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (DialogResult == DialogResult.OK)
+        {
+            _acceptedUsername = _usernameTextBox.Text.Trim();
+            _acceptedPassword = _passwordTextBox.Text;
+        }
+
+        base.OnFormClosing(e);
+    }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
