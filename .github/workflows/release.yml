@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and release
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Read repository version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') {
+            throw "VERSION must be SemVer like 1.2.3 or 1.2.3-beta. Current value: '$version'"
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check release state
+        id: release_state
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git fetch --tags --force
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          $releaseExists = $false
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $releaseExists = $true
+          }
+
+          $tagExists = $false
+          git rev-parse -q --verify "refs/tags/$env:TAG" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $tagExists = $true
+          }
+
+          "release_exists=$($releaseExists.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "tag_exists=$($tagExists.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          exit 0
+
+      - name: Stop if version is already released
+        if: steps.release_state.outputs.release_exists == 'true'
+        shell: pwsh
+        run: |
+          Write-Host "Release ${{ steps.version.outputs.tag }} already exists. Nothing to create."
+
+      - name: Restore
+        if: steps.release_state.outputs.release_exists != 'true'
+        run: dotnet restore
+
+      - name: Build
+        if: steps.release_state.outputs.release_exists != 'true'
+        run: >
+          dotnet build UbisoftAutoLogin.csproj
+          --configuration Release
+          --no-restore
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:ContinuousIntegrationBuild=true
+
+      - name: Publish win-x64 artifact
+        if: steps.release_state.outputs.release_exists != 'true'
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $PWD "artifacts\publish\win-x64"
+          dotnet publish UbisoftAutoLogin.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained false `
+            -p:PublishSingleFile=true `
+            -p:Version=${{ steps.version.outputs.version }} `
+            -p:ContinuousIntegrationBuild=true `
+            -o $publishDir
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive `
+            -Path (Join-Path $publishDir '*') `
+            -DestinationPath "dist\UbisoftAutoLogin-${{ steps.version.outputs.tag }}-win-x64.zip" `
+            -Force
+
+      - name: Extract release notes
+        if: steps.release_state.outputs.release_exists != 'true'
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $lines = Get-Content CHANGELOG.md
+          $versionPattern = [regex]::Escape($env:VERSION)
+          $startPattern = "^\s*##\s+\[?$versionPattern\]?(?:\s+-\s+.+)?\s*$"
+          $nextVersionPattern = '^\s*##\s+'
+
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match $startPattern) {
+              $start = $i
+              break
+            }
+          }
+
+          if ($start -lt 0) {
+            throw "CHANGELOG.md must contain a '## [$env:VERSION]' or '## $env:VERSION' section."
+          }
+
+          $end = $lines.Count
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match $nextVersionPattern) {
+              $end = $i
+              break
+            }
+          }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $section = $lines[$start..($end - 1)] -join [Environment]::NewLine
+          Set-Content -Path "dist\release-notes.md" -Value $section -Encoding UTF8
+          Copy-Item CHANGELOG.md "dist\CHANGELOG-$env:TAG.md"
+
+      - name: Create tag for this version
+        if: steps.release_state.outputs.release_exists != 'true' && steps.release_state.outputs.tag_exists != 'true'
+        shell: pwsh
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a $env:TAG -m "Release $env:TAG" $env:GITHUB_SHA
+          git push origin $env:TAG
+
+      - name: Validate existing tag points at this commit
+        if: steps.release_state.outputs.release_exists != 'true' && steps.release_state.outputs.tag_exists == 'true'
+        shell: pwsh
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $tagCommit = git rev-list -n 1 $env:TAG
+          if ($tagCommit -ne $env:GITHUB_SHA) {
+            throw "Tag $env:TAG already exists at $tagCommit, not this commit $env:GITHUB_SHA. Bump VERSION before releasing."
+          }
+
+      - name: Create GitHub release
+        if: steps.release_state.outputs.release_exists != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create $env:TAG `
+            "dist\UbisoftAutoLogin-$env:TAG-win-x64.zip" `
+            "dist\CHANGELOG-$env:TAG.md" `
+            --title "Ubisoft Auto Login $env:TAG" `
+            --notes-file "dist\release-notes.md" `
+            --verify-tag
