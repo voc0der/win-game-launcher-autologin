@@ -1,4 +1,12 @@
-# Ubisoft Auto Login
+<p align="center">
+  <img src="assets/tray-icon.png" alt="Ubisoft Auto Login tray icon" width="128" height="128">
+</p>
+
+<h1 align="center">Ubisoft Auto Login</h1>
+
+<p align="center">
+  <strong>A quiet Windows tray utility for those moments when Ubisoft Connect forgets you.</strong>
+</p>
 
 Small Windows tray app that listens passively for Ubisoft Connect login windows and fills the saved Ubisoft password only when the foreground window is verified as Ubisoft-owned.
 
@@ -39,6 +47,14 @@ Logs are written to:
 ```
 
 The log intentionally does not write credential values.
+
+## Efficiency Model
+
+The app does not run a timer loop and does not poll every second. It installs passive `SetWinEventHook` subscriptions for window create/show/foreground events, then returns to the WinForms message loop until Windows delivers a relevant event.
+
+The hook is always registered while the tray app is running because that is how it notices Ubisoft Connect appearing. When Ubisoft is not running, the callback only does cheap HWND checks and exits. It filters to visible, non-minimized, roughly login-sized root windows before resolving the process name, then only acts on `upc.exe`, `UbisoftConnect.exe`, or `UbisoftGameLauncher.exe`.
+
+Each candidate HWND is debounced, and synthetic input is only attempted after foreground verification confirms the target is still Ubisoft-owned.
 
 ## Tray Menu
 

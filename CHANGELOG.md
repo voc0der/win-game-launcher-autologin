@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+- Added a custom tray icon asset and README branding.
+
 ## [0.1.1] - 2026-06-01
 
 - Fixed credential saving when the credentials dialog clears the password textbox during cleanup.
