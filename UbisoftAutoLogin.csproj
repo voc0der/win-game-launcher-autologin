@@ -17,4 +17,8 @@
   <ItemGroup>
     <EmbeddedResource Include="assets\tray-icon.png" LogicalName="UbisoftAutoLogin.Assets.TrayIcon.png" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+  </ItemGroup>
 </Project>

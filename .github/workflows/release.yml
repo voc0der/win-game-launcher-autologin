@@ -74,16 +74,24 @@ jobs:
 
       - name: Restore
         if: steps.release_state.outputs.release_exists != 'true'
-        run: dotnet restore
+        run: dotnet restore UbisoftAutoLogin.sln
 
       - name: Build
         if: steps.release_state.outputs.release_exists != 'true'
         run: >
-          dotnet build UbisoftAutoLogin.csproj
+          dotnet build UbisoftAutoLogin.sln
           --configuration Release
           --no-restore
           -p:Version=${{ steps.version.outputs.version }}
           -p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        if: steps.release_state.outputs.release_exists != 'true'
+        run: >
+          dotnet test UbisoftAutoLogin.sln
+          --configuration Release
+          --no-build
+          --verbosity normal
 
       - name: Publish win-x64 artifact
         if: steps.release_state.outputs.release_exists != 'true'

@@ -23,6 +23,12 @@ dotnet restore
 dotnet build -c Release
 ```
 
+## Test
+
+```powershell
+dotnet test -c Release
+```
+
 ## Run
 
 ```powershell
