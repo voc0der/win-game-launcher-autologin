@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+- Made configuration tests runnable without the Windows Desktop runtime.
+
 ## [0.1.2] - 2026-06-01
 
 - Added a custom tray icon asset and README branding.
