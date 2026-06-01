@@ -5,6 +5,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly ConfigStore _configStore;
     private readonly CredentialService _credentials;
     private readonly AppLogger _logger;
+    private readonly Icon _trayIcon;
     private readonly NotifyIcon _notifyIcon;
     private readonly DispatcherForm _dispatcher;
     private readonly WindowEventHook _windowEventHook;
@@ -21,10 +22,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _dispatcher = new DispatcherForm();
         _ = _dispatcher.Handle;
+        _trayIcon = TrayIconLoader.Load(_logger);
 
         _notifyIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _trayIcon,
             Text = "Ubisoft Auto Login",
             Visible = true,
             ContextMenuStrip = BuildContextMenu()
@@ -57,6 +59,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _windowEventHook.Dispose();
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
+            _trayIcon.Dispose();
             _dispatcher.Dispose();
         }
 
