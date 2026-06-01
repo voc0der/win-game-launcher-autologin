@@ -2,9 +2,11 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.1.2] - 2026-06-01
 
 - Added a custom tray icon asset and README branding.
+- Added unit tests for configuration defaults and safety normalization.
+- Added test execution to the release workflow.
 
 ## [0.1.1] - 2026-06-01
 
