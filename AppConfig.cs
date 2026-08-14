@@ -6,6 +6,8 @@ internal sealed class AppConfig
     public double PasswordBoxYPercent { get; set; } = 0.58;
     public int DelayBeforeFillMs { get; set; } = 2500;
     public int DebounceMs { get; set; } = 15000;
+    public int MaxFillAttempts { get; set; } = 3;
+    public int RetryDelayMs { get; set; } = 1500;
 
     public void Normalize()
     {
@@ -13,6 +15,8 @@ internal sealed class AppConfig
         PasswordBoxYPercent = Clamp(PasswordBoxYPercent, 0.05, 0.95, 0.58);
         DelayBeforeFillMs = Clamp(DelayBeforeFillMs, 1500, 30000, 2500);
         DebounceMs = Clamp(DebounceMs, 1000, 120000, 15000);
+        MaxFillAttempts = Clamp(MaxFillAttempts, 1, 10, 3);
+        RetryDelayMs = Clamp(RetryDelayMs, 500, 10000, 1500);
     }
 
     private static double Clamp(double value, double min, double max, double fallback)

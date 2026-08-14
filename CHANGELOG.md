@@ -2,9 +2,12 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.1.3] - 2026-08-14
 
 - Made configuration tests runnable without the Windows Desktop runtime.
+- Fixed the Playnite Fullscreen launch deadlock by safely minimizing a verified Playnite foreground window before Ubisoft coordinate entry.
+- Allowed element-scoped UI Automation submission without requiring foreground focus while preserving foreground checks for global input.
+- Added bounded fill retries, immediate retry when Ubisoft is manually foregrounded, overlap prevention, and foreground-owner diagnostics.
 
 ## [0.1.2] - 2026-06-01
 

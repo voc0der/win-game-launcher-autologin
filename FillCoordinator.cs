@@ -9,6 +9,7 @@ internal sealed class FillCoordinator
     private readonly CredentialService _credentials;
     private readonly AppLogger _logger;
     private readonly Action<string> _status;
+    private readonly ForegroundWindowActivator _foregroundActivator;
     private UIA.IUIAutomation? _automation;
 
     public FillCoordinator(
@@ -21,6 +22,7 @@ internal sealed class FillCoordinator
         _credentials = credentials;
         _logger = logger;
         _status = status;
+        _foregroundActivator = new ForegroundWindowActivator(logger);
     }
 
     private UIA.IUIAutomation Automation => _automation ??= new UIA.CUIAutomationClass();
@@ -43,26 +45,53 @@ internal sealed class FillCoordinator
 
         try
         {
-            var uiaResult = TryFillWithUiAutomation(window.RootHwnd, savedCredentials.Username, savedCredentials.Password);
-            if (uiaResult == FillAttemptResult.Submitted)
+            for (var attempt = 1; attempt <= config.MaxFillAttempts; attempt++)
             {
-                _status("Submitted");
-                _logger.Info("Submitted using UI Automation.");
-                return;
+                if (!UbisoftWindowDetector.TryGetCandidate(window.RootHwnd, out var currentWindow) ||
+                    currentWindow.ProcessId != window.ProcessId)
+                {
+                    _logger.Info("Fill stopped because the original Ubisoft window is no longer available.");
+                    return;
+                }
+
+                var uiaResult = TryFillWithUiAutomation(window.RootHwnd, savedCredentials.Username, savedCredentials.Password);
+                if (uiaResult == FillAttemptResult.Submitted)
+                {
+                    _status("Submitted");
+                    _logger.Info("Submitted using UI Automation.");
+                    return;
+                }
+
+                if (uiaResult == FillAttemptResult.Aborted)
+                {
+                    return;
+                }
+
+                _status("UIA failed, using coordinate fallback");
+                _logger.Warn("UI Automation failed; falling back to configured coordinates.");
+                var coordinateResult = TryFillWithCoordinates(window.RootHwnd, savedCredentials.Password, config);
+                if (coordinateResult == FillAttemptResult.Submitted)
+                {
+                    _status("Submitted");
+                    _logger.Info("Submitted using coordinate fallback.");
+                    return;
+                }
+
+                if (coordinateResult == FillAttemptResult.Aborted)
+                {
+                    return;
+                }
+
+                if (attempt < config.MaxFillAttempts)
+                {
+                    _status($"Retrying fill ({attempt + 1}/{config.MaxFillAttempts})");
+                    _logger.Warn($"Fill attempt {attempt}/{config.MaxFillAttempts} did not complete; retrying.");
+                    await Task.Delay(config.RetryDelayMs, cancellationToken).ConfigureAwait(true);
+                }
             }
 
-            if (uiaResult == FillAttemptResult.Aborted)
-            {
-                return;
-            }
-
-            _status("UIA failed, using coordinate fallback");
-            _logger.Warn("UI Automation failed; falling back to configured coordinates.");
-            if (TryFillWithCoordinates(window.RootHwnd, savedCredentials.Password, config))
-            {
-                _status("Submitted");
-                _logger.Info("Submitted using coordinate fallback.");
-            }
+            _status("Fill failed after retries");
+            _logger.Warn($"Fill failed after {config.MaxFillAttempts} attempts.");
         }
         finally
         {
@@ -81,9 +110,10 @@ internal sealed class FillCoordinator
             }
 
             var edits = FindVisibleEnabledElements(root, UIA.UIA_ControlTypeIds.UIA_EditControlTypeId);
-            var passwordField = FindPasswordField(edits);
+            var passwordField = FindPasswordField(edits, out var isVerifiedPasswordField);
             if (passwordField is null)
             {
+                _logger.Info($"UI Automation found {edits.Count} usable edit controls but no password field.");
                 return FillAttemptResult.Failed;
             }
 
@@ -93,31 +123,51 @@ internal sealed class FillCoordinator
                 TrySetValue(usernameField, username);
             }
 
-            passwordField.SetFocus();
             if (!TrySetValue(passwordField, password))
             {
+                _logger.Info("UI Automation password candidate did not expose a writable Value pattern.");
                 return FillAttemptResult.Failed;
             }
 
             _status("UIA password field found");
             _logger.Info("UI Automation password field found and filled.");
 
-            if (!BringToForegroundAndVerify(rootHwnd))
+            var button = FindSubmitButton(root);
+            if (button is not null && isVerifiedPasswordField)
             {
-                _status("Aborted: Ubisoft not foreground");
-                _logger.Warn("UI Automation submit aborted because Ubisoft was not foreground.");
-                return FillAttemptResult.Aborted;
+                if (TryInvoke(button))
+                {
+                    _logger.Info("Invoked the UI Automation submit button without requiring foreground input.");
+                    return FillAttemptResult.Submitted;
+                }
+
+                _logger.Warn("UI Automation submit button did not support the Invoke pattern.");
+            }
+            else if (button is not null)
+            {
+                _logger.Info("UI Automation used a heuristic password field; foreground verification is required before submit.");
+            }
+            else
+            {
+                _logger.Info("UI Automation submit button was not exposed; Enter requires foreground activation.");
             }
 
-            var button = FindSubmitButton(root);
+            var activationResult = _foregroundActivator.TryActivateUbisoft(rootHwnd);
+            if (activationResult != ForegroundActivationResult.Activated)
+            {
+                return HandleActivationFailure(activationResult, "UI Automation submit");
+            }
+
+            passwordField.SetFocus();
             if (button is not null && TryInvoke(button))
             {
+                _logger.Info("Invoked the UI Automation submit button after foreground verification.");
                 return FillAttemptResult.Submitted;
             }
 
             return InputSender.SendEnterIfForeground(rootHwnd, _logger)
                 ? FillAttemptResult.Submitted
-                : FillAttemptResult.Aborted;
+                : FillAttemptResult.Failed;
         }
         catch (Exception ex) when (ex is InvalidOperationException or COMException)
         {
@@ -126,19 +176,18 @@ internal sealed class FillCoordinator
         }
     }
 
-    private bool TryFillWithCoordinates(IntPtr rootHwnd, string password, AppConfig config)
+    private FillAttemptResult TryFillWithCoordinates(IntPtr rootHwnd, string password, AppConfig config)
     {
-        if (!NativeMethods.GetWindowRect(rootHwnd, out var rect))
+        var activationResult = _foregroundActivator.TryActivateUbisoft(rootHwnd);
+        if (activationResult != ForegroundActivationResult.Activated)
         {
-            _logger.Warn("Coordinate fallback aborted because GetWindowRect failed.");
-            return false;
+            return HandleActivationFailure(activationResult, "Coordinate fallback");
         }
 
-        if (!BringToForegroundAndVerify(rootHwnd))
+        if (!NativeMethods.GetWindowRect(rootHwnd, out var rect))
         {
-            _status("Aborted: Ubisoft not foreground");
-            _logger.Warn("Coordinate fallback aborted before click because Ubisoft was not foreground.");
-            return false;
+            _logger.Warn("Coordinate fallback could not read the Ubisoft window rectangle.");
+            return FillAttemptResult.Failed;
         }
 
         var x = rect.Left + (int)Math.Round(rect.Width * config.PasswordBoxXPercent);
@@ -146,30 +195,38 @@ internal sealed class FillCoordinator
 
         if (!InputSender.Click(rootHwnd, x, y, _logger))
         {
-            _status("Aborted: Ubisoft not foreground");
-            return false;
+            return FillAttemptResult.Failed;
+        }
+
+        if (!InputSender.SendSelectAllIfForeground(rootHwnd, _logger))
+        {
+            return FillAttemptResult.Failed;
         }
 
         if (!InputSender.SendTextIfForeground(rootHwnd, password, _logger))
         {
-            _status("Aborted: Ubisoft not foreground");
-            return false;
+            return FillAttemptResult.Failed;
         }
 
         if (!InputSender.SendEnterIfForeground(rootHwnd, _logger))
         {
-            _status("Aborted: Ubisoft not foreground");
-            return false;
+            return FillAttemptResult.Failed;
         }
 
-        return true;
+        return FillAttemptResult.Submitted;
     }
 
-    private bool BringToForegroundAndVerify(IntPtr rootHwnd)
+    private FillAttemptResult HandleActivationFailure(ForegroundActivationResult result, string operation)
     {
-        NativeMethods.SetForegroundWindow(rootHwnd);
-        Thread.Sleep(150);
-        return UbisoftWindowDetector.IsForegroundWithinTarget(rootHwnd);
+        if (result == ForegroundActivationResult.BlockedByOtherApplication)
+        {
+            _status("Waiting: Ubisoft not foreground");
+            _logger.Warn($"{operation} paused because another application owns the foreground.");
+            return FillAttemptResult.Aborted;
+        }
+
+        _logger.Warn($"{operation} could not activate Ubisoft; the attempt can be retried.");
+        return FillAttemptResult.Failed;
     }
 
     private List<UIA.IUIAutomationElement> FindVisibleEnabledElements(UIA.IUIAutomationElement root, int controlTypeId)
@@ -190,12 +247,17 @@ internal sealed class FillCoordinator
         return elements;
     }
 
-    private static UIA.IUIAutomationElement? FindPasswordField(IReadOnlyList<UIA.IUIAutomationElement> edits)
+    private static UIA.IUIAutomationElement? FindPasswordField(
+        IReadOnlyList<UIA.IUIAutomationElement> edits,
+        out bool isVerifiedPasswordField)
     {
+        isVerifiedPasswordField = false;
+
         foreach (var edit in edits)
         {
             if (GetBool(edit, UIA.UIA_PropertyIds.UIA_IsPasswordPropertyId))
             {
+                isVerifiedPasswordField = true;
                 return edit;
             }
         }
@@ -204,6 +266,7 @@ internal sealed class FillCoordinator
         {
             if (LooksLikePassword(edit))
             {
+                isVerifiedPasswordField = true;
                 return edit;
             }
         }

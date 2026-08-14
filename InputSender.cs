@@ -64,6 +64,25 @@ internal static class InputSender
         return true;
     }
 
+    public static bool SendSelectAllIfForeground(IntPtr targetRootHwnd, AppLogger logger)
+    {
+        if (!UbisoftWindowDetector.IsForegroundWithinTarget(targetRootHwnd))
+        {
+            logger.Warn("Select-all aborted because foreground was not the target Ubisoft window.");
+            return false;
+        }
+
+        var inputs = new[]
+        {
+            VirtualKey(NativeMethods.VK_CONTROL, keyUp: false),
+            VirtualKey(NativeMethods.VK_A, keyUp: false),
+            VirtualKey(NativeMethods.VK_A, keyUp: true),
+            VirtualKey(NativeMethods.VK_CONTROL, keyUp: true)
+        };
+
+        return SendAll(inputs, logger, "Ctrl+A");
+    }
+
     public static bool SendEnterIfForeground(IntPtr targetRootHwnd, AppLogger logger)
     {
         if (!UbisoftWindowDetector.IsForegroundWithinTarget(targetRootHwnd))

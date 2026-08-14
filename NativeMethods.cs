@@ -23,6 +23,9 @@ internal static class NativeMethods
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
     public const ushort VK_RETURN = 0x0D;
+    public const ushort VK_CONTROL = 0x11;
+    public const ushort VK_A = 0x41;
+    public const int SW_MINIMIZE = 6;
 
     public delegate void WinEventProc(
         IntPtr hWinEventHook,
@@ -75,6 +78,10 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

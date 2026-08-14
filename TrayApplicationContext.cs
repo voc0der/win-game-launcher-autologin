@@ -11,6 +11,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly WindowEventHook _windowEventHook;
     private readonly FillCoordinator _fillCoordinator;
     private readonly Dictionary<IntPtr, DateTimeOffset> _lastAttemptByHwnd = new();
+    private readonly HashSet<uint> _activeProcessIds = new();
     private AppConfig _config;
 
     public TrayApplicationContext(ConfigStore configStore, CredentialService credentials, AppLogger logger)
@@ -93,7 +94,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             return;
         }
 
-        if (!ShouldAttempt(window.RootHwnd))
+        if (_activeProcessIds.Contains(window.ProcessId) || !ShouldAttempt(window.RootHwnd, e.EventType))
         {
             return;
         }
@@ -116,6 +117,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private async Task FillWindowAsync(UbisoftWindow window)
     {
+        if (!_activeProcessIds.Add(window.ProcessId))
+        {
+            _logger.Info($"Skipped overlapping fill for Ubisoft pid={window.ProcessId}.");
+            return;
+        }
+
         try
         {
             await _fillCoordinator.FillAsync(window, CancellationToken.None);
@@ -129,15 +136,22 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _logger.Error("Fill operation failed.", ex);
             ShowStatus("Fill failed");
         }
+        finally
+        {
+            _activeProcessIds.Remove(window.ProcessId);
+        }
     }
 
-    private bool ShouldAttempt(IntPtr rootHwnd)
+    private bool ShouldAttempt(IntPtr rootHwnd, uint eventType)
     {
         var now = DateTimeOffset.UtcNow;
         var debounce = TimeSpan.FromMilliseconds(_config.DebounceMs);
+        var foregroundRetry = eventType == NativeMethods.EVENT_SYSTEM_FOREGROUND &&
+                              UbisoftWindowDetector.IsForegroundWithinTarget(rootHwnd);
 
         if (_lastAttemptByHwnd.TryGetValue(rootHwnd, out var lastAttempt) &&
-            now - lastAttempt < debounce)
+            now - lastAttempt < debounce &&
+            !foregroundRetry)
         {
             return false;
         }

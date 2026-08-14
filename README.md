@@ -8,7 +8,7 @@
   <strong>A quiet Windows tray utility for those moments when Ubisoft Connect forgets you.</strong>
 </p>
 
-Small Windows tray app that listens passively for Ubisoft Connect login windows and fills the saved Ubisoft password only when the foreground window is verified as Ubisoft-owned.
+Small Windows tray app that listens passively for Ubisoft Connect login windows and fills the saved Ubisoft password. Element-scoped UI Automation can submit without stealing focus; global keyboard or mouse input is only sent after the foreground window is verified as Ubisoft-owned.
 
 ## Requirements
 
@@ -62,6 +62,8 @@ The hook is always registered while the tray app is running because that is how 
 
 Each candidate HWND is debounced, and synthetic input is only attempted after foreground verification confirms the target is still Ubisoft-owned.
 
+If Playnite is the foreground application while Ubisoft is waiting for login, the app minimizes only the exact `Playnite.FullscreenApp` or `Playnite.DesktopApp` process before activating Ubisoft. It does not minimize or type into arbitrary foreground applications. Failed activation attempts are retried a bounded number of times, and bringing Ubisoft to the foreground manually bypasses the normal debounce delay.
+
 ## Tray Menu
 
 - `Set / Update Credentials`
@@ -77,11 +79,13 @@ Default `config.json`:
   "PasswordBoxXPercent": 0.5,
   "PasswordBoxYPercent": 0.58,
   "DelayBeforeFillMs": 2500,
-  "DebounceMs": 15000
+  "DebounceMs": 15000,
+  "MaxFillAttempts": 3,
+  "RetryDelayMs": 1500
 }
 ```
 
-Coordinate fallback only runs after the exact Ubisoft window is activated and re-verified as foreground. The app checks foreground ownership before every synthetic text character and before pressing Enter.
+Coordinate fallback only runs after the exact Ubisoft window is activated and re-verified as foreground. It selects any existing password before replacement, then checks foreground ownership before every synthetic text character and before pressing Enter.
 
 ## Release Process
 

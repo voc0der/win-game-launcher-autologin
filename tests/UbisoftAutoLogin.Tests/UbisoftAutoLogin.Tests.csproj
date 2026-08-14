@@ -18,5 +18,6 @@
 
   <ItemGroup>
     <Compile Include="..\..\AppConfig.cs" Link="AppConfig.cs" />
+    <Compile Include="..\..\ForegroundOwnerPolicy.cs" Link="ForegroundOwnerPolicy.cs" />
   </ItemGroup>
 </Project>
